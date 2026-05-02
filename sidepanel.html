@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>App Dashboard</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>My Apps</h1>
+      <button id="add-section-btn" class="primary-btn" title="Add a new section">
+        + Section
+      </button>
+    </header>
+
+    <main id="sections-container" class="sections-container">
+      <!-- Sections rendered here -->
+    </main>
+
+    <!-- App add/edit dialog -->
+    <dialog id="app-dialog">
+      <form method="dialog" id="app-form">
+        <h2 id="app-dialog-title">Add App</h2>
+        <label>
+          Name
+          <input type="text" id="app-name" required maxlength="60" />
+        </label>
+        <label>
+          URL
+          <input type="url" id="app-url" required placeholder="https://example.com" />
+        </label>
+        <input type="hidden" id="app-section-id" />
+        <input type="hidden" id="app-id" />
+        <menu class="dialog-actions">
+          <button type="button" id="app-cancel-btn" class="ghost-btn">Cancel</button>
+          <button type="submit" class="primary-btn">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <!-- Section rename dialog -->
+    <dialog id="section-dialog">
+      <form method="dialog" id="section-form">
+        <h2 id="section-dialog-title">New Section</h2>
+        <label>
+          Name
+          <input type="text" id="section-name" required maxlength="40" />
+        </label>
+        <input type="hidden" id="section-id" />
+        <menu class="dialog-actions">
+          <button type="button" id="section-cancel-btn" class="ghost-btn">Cancel</button>
+          <button type="submit" class="primary-btn">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
