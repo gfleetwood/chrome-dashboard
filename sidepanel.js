@@ -92,6 +92,13 @@ function renderSection(section) {
   const header = document.createElement("div");
   header.className = "section-header";
 
+  const handle = document.createElement("span");
+  handle.className = "drag-handle";
+  handle.title = "Drag to reorder section";
+  handle.textContent = "⋮⋮";
+  handle.draggable = true;
+  header.appendChild(handle);
+
   const title = document.createElement("h2");
   title.textContent = section.name;
   title.title = "Click to rename";
@@ -133,8 +140,10 @@ function renderSection(section) {
   addTile.addEventListener("click", () => openAppDialog(section.id, null));
   grid.appendChild(addTile);
 
-  attachGridDnD(grid);
   el.appendChild(grid);
+  attachGridDnD(grid);
+
+  attachSectionDnD(el, handle, section.id);
   return el;
 }
 
@@ -196,11 +205,12 @@ function renderApp(app, sectionId) {
 
 // ---------- Drag and Drop ----------
 
-let dragData = null; // { sectionId, appId }
+let dragData = null; // { kind: "app", sectionId, appId } | { kind: "section", sectionId }
 
 function attachTileDnD(tile) {
   tile.addEventListener("dragstart", (e) => {
     dragData = {
+      kind: "app",
       sectionId: tile.dataset.sectionId,
       appId: tile.dataset.appId,
     };
@@ -211,6 +221,8 @@ function attachTileDnD(tile) {
   tile.addEventListener("dragend", () => {
     tile.classList.remove("dragging");
     dragData = null;
+    clearAppDropIndicators();
+    clearSectionDropIndicators();
     document.querySelectorAll(".section.drag-over").forEach((el) =>
       el.classList.remove("drag-over")
     );
@@ -221,31 +233,64 @@ function attachGridDnD(grid) {
   const sectionEl = grid.closest(".section");
 
   grid.addEventListener("dragover", (e) => {
-    if (!dragData) return;
+    if (!dragData || dragData.kind !== "app") return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     sectionEl.classList.add("drag-over");
+    updateAppDropIndicator(grid, e);
   });
 
   grid.addEventListener("dragleave", (e) => {
     if (!sectionEl.contains(e.relatedTarget)) {
       sectionEl.classList.remove("drag-over");
+      clearAppDropIndicators(grid);
     }
   });
 
   grid.addEventListener("drop", async (e) => {
-    if (!dragData) return;
+    if (!dragData || dragData.kind !== "app") return;
     e.preventDefault();
     sectionEl.classList.remove("drag-over");
+    clearAppDropIndicators(grid);
 
     const targetSectionId = grid.dataset.sectionId;
-    const targetTile = e.target.closest(".app-tile");
-    const targetIndex = targetTile
-      ? indexOfApp(targetSectionId, targetTile.dataset.appId)
-      : -1;
-
-    moveApp(dragData.sectionId, dragData.appId, targetSectionId, targetIndex, e);
+    const { targetIndex, after } = computeAppDropTarget(grid, e);
+    moveApp(dragData.sectionId, dragData.appId, targetSectionId, targetIndex, after);
   });
+}
+
+function computeAppDropTarget(grid, e) {
+  const targetTile = e.target.closest(".app-tile");
+  if (!targetTile || !grid.contains(targetTile) || targetTile.classList.contains("dragging")) {
+    return { targetTile: null, targetIndex: -1, after: false };
+  }
+  const rect = targetTile.getBoundingClientRect();
+  const after = e.clientX > rect.left + rect.width / 2;
+  const targetIndex = indexOfApp(grid.dataset.sectionId, targetTile.dataset.appId);
+  return { targetTile, targetIndex, after };
+}
+
+function updateAppDropIndicator(grid, e) {
+  clearAppDropIndicators(grid);
+  const { targetTile, after } = computeAppDropTarget(grid, e);
+  if (targetTile) {
+    targetTile.classList.add(after ? "drop-after" : "drop-before");
+  } else {
+    grid.classList.add("drop-end");
+  }
+}
+
+function clearAppDropIndicators(scope) {
+  const root = scope || document;
+  root.querySelectorAll(".app-tile.drop-before, .app-tile.drop-after").forEach((el) =>
+    el.classList.remove("drop-before", "drop-after")
+  );
+  root.querySelectorAll(".app-grid.drop-end").forEach((el) =>
+    el.classList.remove("drop-end")
+  );
+  if (scope && scope.classList && scope.classList.contains("app-grid")) {
+    scope.classList.remove("drop-end");
+  }
 }
 
 function indexOfApp(sectionId, appId) {
@@ -254,7 +299,7 @@ function indexOfApp(sectionId, appId) {
   return section.apps.findIndex((a) => a.id === appId);
 }
 
-async function moveApp(fromSectionId, appId, toSectionId, toIndex, event) {
+async function moveApp(fromSectionId, appId, toSectionId, toIndex, after) {
   const fromSection = findSection(fromSectionId);
   const toSection = findSection(toSectionId);
   if (!fromSection || !toSection) return;
@@ -262,24 +307,86 @@ async function moveApp(fromSectionId, appId, toSectionId, toIndex, event) {
   const fromIndex = fromSection.apps.findIndex((a) => a.id === appId);
   if (fromIndex === -1) return;
 
+  let insertIndex;
+  if (toIndex === -1) {
+    insertIndex = toSection.apps.length;
+  } else {
+    insertIndex = after ? toIndex + 1 : toIndex;
+  }
+
   const [app] = fromSection.apps.splice(fromIndex, 1);
 
-  let insertIndex = toIndex;
-  if (insertIndex === -1 || insertIndex > toSection.apps.length) {
-    insertIndex = toSection.apps.length;
+  // Same-section move: account for the splice that shifted later items left by one.
+  if (fromSection === toSection && fromIndex < insertIndex) {
+    insertIndex -= 1;
   }
-
-  // If dropping past the midpoint of the target tile, insert after it.
-  if (event && toIndex !== -1) {
-    const targetTile = event.target.closest(".app-tile");
-    if (targetTile) {
-      const rect = targetTile.getBoundingClientRect();
-      const after = event.clientX > rect.left + rect.width / 2;
-      if (after) insertIndex = Math.min(insertIndex + 1, toSection.apps.length);
-    }
-  }
+  insertIndex = Math.max(0, Math.min(insertIndex, toSection.apps.length));
 
   toSection.apps.splice(insertIndex, 0, app);
+  await saveState();
+  render();
+}
+
+function attachSectionDnD(sectionEl, handle, sectionId) {
+  handle.addEventListener("dragstart", (e) => {
+    dragData = { kind: "section", sectionId };
+    sectionEl.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", sectionId);
+  });
+  handle.addEventListener("dragend", () => {
+    sectionEl.classList.remove("dragging");
+    dragData = null;
+    clearSectionDropIndicators();
+  });
+
+  sectionEl.addEventListener("dragover", (e) => {
+    if (!dragData || dragData.kind !== "section") return;
+    if (dragData.sectionId === sectionId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    const rect = sectionEl.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    clearSectionDropIndicators();
+    sectionEl.classList.add(after ? "drop-after" : "drop-before");
+  });
+
+  sectionEl.addEventListener("dragleave", (e) => {
+    if (!sectionEl.contains(e.relatedTarget)) {
+      sectionEl.classList.remove("drop-before", "drop-after");
+    }
+  });
+
+  sectionEl.addEventListener("drop", async (e) => {
+    if (!dragData || dragData.kind !== "section") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = sectionEl.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    clearSectionDropIndicators();
+    moveSection(dragData.sectionId, sectionId, after);
+  });
+}
+
+function clearSectionDropIndicators() {
+  document.querySelectorAll(".section.drop-before, .section.drop-after").forEach((el) =>
+    el.classList.remove("drop-before", "drop-after")
+  );
+}
+
+async function moveSection(fromId, toId, after) {
+  if (fromId === toId) return;
+  const fromIndex = state.sections.findIndex((s) => s.id === fromId);
+  const toIndex = state.sections.findIndex((s) => s.id === toId);
+  if (fromIndex === -1 || toIndex === -1) return;
+
+  let insertIndex = after ? toIndex + 1 : toIndex;
+  const [section] = state.sections.splice(fromIndex, 1);
+  if (fromIndex < insertIndex) insertIndex -= 1;
+  insertIndex = Math.max(0, Math.min(insertIndex, state.sections.length));
+  state.sections.splice(insertIndex, 0, section);
+
   await saveState();
   render();
 }

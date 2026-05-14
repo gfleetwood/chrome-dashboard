@@ -61,6 +61,27 @@ html, body {
   outline-offset: -2px;
 }
 
+.section.dragging { opacity: 0.4; }
+
+.section.drop-before {
+  box-shadow: 0 -3px 0 0 var(--primary), var(--shadow);
+}
+.section.drop-after {
+  box-shadow: 0 3px 0 0 var(--primary), var(--shadow);
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  user-select: none;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.drag-handle:active { cursor: grabbing; }
+.drag-handle:hover { color: var(--text); }
+
 .section-header {
   display: flex;
   align-items: center;
@@ -131,6 +152,19 @@ html, body {
 }
 
 .app-tile.dragging { opacity: 0.4; }
+
+.app-tile.drop-before {
+  box-shadow: -3px 0 0 0 var(--primary);
+}
+.app-tile.drop-after {
+  box-shadow: 3px 0 0 0 var(--primary);
+}
+
+.app-grid.drop-end .add-app-tile {
+  border-color: var(--primary);
+  border-style: solid;
+  color: var(--primary);
+}
 
 .app-icon {
   width: 36px;
